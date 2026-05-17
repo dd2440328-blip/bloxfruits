@@ -1,0 +1,384 @@
+-- ==========================================
+-- SCRIPT QUẢN LÝ ĐƠN HÀNG & KẾT NỐI RAM (V5 - MIKURA HUB ANIME EDITION)
+-- Tích hợp: Hình Nền Anime, UI Dark Gothic, Chữ Chuyển Động, Lưu Local
+-- ==========================================
+
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ==========================================
+-- [ CẤU HÌNH CHUNG ]
+-- ==========================================
+local USER_SETTINGS = {
+    Enable_RAM_API = true,   
+    RAM_Port = "7963",       
+    RAM_Password = "",       
+    DefaultDon = "Chưa có",  
+    RAM_IP = "localhost"
+}
+
+-- THAY ID ẢNH ANIME CỦA BẠN TẠI ĐÂY (Cần upload ảnh lên Roblox lấy Decal ID)
+local ANIME_IMAGE_ID = "rbxassetid://13540306141" 
+
+local function SendNotification(title, text)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", { Title = title; Text = text; Duration = 5; })
+    end)
+end
+
+-- ==========================================
+-- HỆ THỐNG API (VƯỢT LỖI EXECUTOR PC)
+-- ==========================================
+local requestFunc = (syn and syn.request) or request or (http and http.request) or http_request
+
+local function RAM_API(method, action, bodyText)
+    if not requestFunc then return false end
+    local url = string.format("http://%s:%s/%s?Account=%s", USER_SETTINGS.RAM_IP, USER_SETTINGS.RAM_Port, action, LocalPlayer.Name)
+    if USER_SETTINGS.RAM_Password ~= "" then url = url .. "&Password=" .. USER_SETTINGS.RAM_Password end
+    
+    local reqData = { Url = url, Method = method }
+    if method == "POST" and bodyText then reqData.Body = bodyText end
+    
+    local success, res = pcall(function() return requestFunc(reqData) end)
+    if success and res and res.StatusCode == 200 then return res.Body or true end
+    return false
+end
+
+-- ==========================================
+-- KIỂM TRA KẾT NỐI & DỮ LIỆU CỤC BỘ
+-- ==========================================
+local RamConnected = false
+local SystemLogMsg = "Đang kiểm tra kết nối..."
+
+if USER_SETTINGS.Enable_RAM_API then
+    if not requestFunc then
+        SystemLogMsg = "❌ Executor không hỗ trợ HTTP Request!"
+    else
+        local testConn = RAM_API("GET", "GetCSRFToken")
+        if testConn and testConn ~= "Invalid Account" and testConn ~= "" then
+            RamConnected = true
+            SystemLogMsg = "✅ RAM: Kết nối API thành công!"
+        else
+            SystemLogMsg = "❌ RAM Lỗi: Chưa bật WebServer hoặc sai IP/Port/Pass!"
+        end
+    end
+else
+    SystemLogMsg = "⚠️ RAM API: Đã tắt trong Cấu hình."
+end
+
+local SAVE_FILE_NAME = "DuLieuDon_" .. LocalPlayer.Name .. ".json"
+local Config = { UseRAM = false, CurrentDon = USER_SETTINGS.DefaultDon }
+
+local function SaveLocalData()
+    if writefile then
+        writefile(SAVE_FILE_NAME, HttpService:JSONEncode({ Don = Config.CurrentDon }))
+    end
+end
+
+local function LoadLocalData()
+    if isfile and isfile(SAVE_FILE_NAME) and readfile then
+        pcall(function()
+            local decoded = HttpService:JSONDecode(readfile(SAVE_FILE_NAME))
+            if decoded.Don then Config.CurrentDon = decoded.Don end
+        end)
+    end
+end
+
+if RamConnected then
+    Config.UseRAM = true
+    local currentRamDesc = RAM_API("GET", "GetDescription")
+    if currentRamDesc and currentRamDesc ~= "" then
+        Config.CurrentDon = string.match(currentRamDesc, "Đơn: (.*)") or currentRamDesc
+    else
+        LoadLocalData()
+    end
+else
+    LoadLocalData()
+end
+
+-- ==========================================
+-- TẠO GIAO DIỆN UI (BACKGROUND ANIME)
+-- ==========================================
+local targetGui = LocalPlayer:WaitForChild("PlayerGui")
+pcall(function() targetGui = (gethui and gethui()) or game:GetService("CoreGui") end)
+
+if targetGui:FindFirstChild("MikuraHubUI") then targetGui.MikuraHubUI:Destroy() end
+if targetGui:FindFirstChild("BananaCatUI") then targetGui.BananaCatUI:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MikuraHubUI"
+ScreenGui.ResetOnSpawn = false 
+ScreenGui.Parent = targetGui
+
+-- Khung chính 
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 260, 0, 95)
+MainFrame.Position = UDim2.new(0.5, -130, 0, 20)
+MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 12) 
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.ClipsDescendants = true 
+MainFrame.Parent = ScreenGui
+
+-- KHUNG HÌNH NỀN NHÂN VẬT ANIME
+local BackgroundImage = Instance.new("ImageLabel")
+BackgroundImage.Size = UDim2.new(1, 0, 1, 0)
+BackgroundImage.Position = UDim2.new(0, 0, 0, 0)
+BackgroundImage.Image = ANIME_IMAGE_ID
+BackgroundImage.ImageTransparency = 0.65 
+BackgroundImage.ScaleType = Enum.ScaleType.Crop 
+BackgroundImage.BackgroundTransparency = 1
+BackgroundImage.ZIndex = 0
+BackgroundImage.Parent = MainFrame
+
+-- Bo góc cho khung chính
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 6)
+MainCorner.Parent = MainFrame
+
+-- Viền phát sáng Neon màu Đỏ Crimson
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Thickness = 1.8
+MainStroke.Color = Color3.fromRGB(200, 0, 20)
+MainStroke.Parent = MainFrame
+
+-- Tiêu đề MIKURA HUB (Đổi màu Đỏ - Bạc mượt mà)
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -35, 0, 32)
+Title.Position = UDim2.new(0, 12, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "MIKURA HUB"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.FredokaOne
+Title.TextSize = 16
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.ZIndex = 2
+Title.Parent = MainFrame
+
+RunService.RenderStepped:Connect(function()
+    local t = tick()
+    local wave = math.sin(t * 3.5)
+    local r = 0.7 + 0.3 * wave
+    local g = 0.2 - 0.2 * wave
+    local b = 0.2 - 0.2 * wave
+    if wave > 0 then
+        r = 0.7 + 0.3 * wave
+        g = 0.2 + 0.8 * wave
+        b = 0.2 + 0.8 * wave
+    end
+    Title.TextColor3 = Color3.new(r, math.clamp(g, 0, 1), math.clamp(b, 0, 1))
+end)
+
+-- Nút bánh răng cài đặt
+local SettingsBtn = Instance.new("TextButton")
+SettingsBtn.Size = UDim2.new(0, 25, 0, 25)
+SettingsBtn.Position = UDim2.new(1, -32, 0, 4)
+SettingsBtn.BackgroundTransparency = 1
+SettingsBtn.Text = "⚙️"
+SettingsBtn.TextSize = 16
+SettingsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SettingsBtn.ZIndex = 2
+SettingsBtn.Parent = MainFrame
+
+local hiddenName = string.sub(LocalPlayer.Name, 1, 4) .. "*****"
+
+-- ==================== TAB 1: XEM/SỬA ĐƠN ====================
+local ViewMain = Instance.new("Frame")
+ViewMain.Size = UDim2.new(1, 0, 1, -32)
+ViewMain.Position = UDim2.new(0, 0, 0, 32)
+ViewMain.BackgroundTransparency = 1
+ViewMain.ZIndex = 2
+ViewMain.Parent = MainFrame
+
+local NameLabel = Instance.new("TextLabel")
+NameLabel.Size = UDim2.new(1, -20, 0, 20)
+NameLabel.Position = UDim2.new(0, 12, 0, 0)
+NameLabel.BackgroundTransparency = 1
+NameLabel.Text = "Tên: " .. hiddenName
+NameLabel.TextColor3 = Color3.fromRGB(220, 220, 225) 
+NameLabel.Font = Enum.Font.SourceSansSemibold
+NameLabel.TextSize = 14
+NameLabel.TextXAlignment = Enum.TextXAlignment.Left
+NameLabel.Parent = ViewMain
+
+local OrderLabel = Instance.new("TextLabel")
+OrderLabel.Size = UDim2.new(0.72, -15, 0, 22)
+OrderLabel.Position = UDim2.new(0, 12, 0, 22)
+OrderLabel.BackgroundTransparency = 1
+OrderLabel.Text = "Đơn: " .. Config.CurrentDon
+OrderLabel.TextColor3 = Color3.fromRGB(255, 60, 60) 
+OrderLabel.Font = Enum.Font.SourceSansBold
+OrderLabel.TextSize = 14
+OrderLabel.TextXAlignment = Enum.TextXAlignment.Left
+OrderLabel.TextTruncate = Enum.TextTruncate.AtEnd
+OrderLabel.Parent = ViewMain
+
+-- Nút Sửa đơn
+local EditBtn = Instance.new("TextButton")
+EditBtn.Size = UDim2.new(0.28, -12, 0, 22)
+EditBtn.Position = UDim2.new(0.72, 0, 0, 22)
+EditBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+EditBtn.BackgroundTransparency = 0.2 
+EditBtn.Text = "✏️ Sửa"
+EditBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+EditBtn.Font = Enum.Font.SourceSansBold
+EditBtn.TextSize = 12
+EditBtn.Parent = ViewMain
+
+local EditBtnCorner = Instance.new("UICorner")
+EditBtnCorner.CornerRadius = UDim.new(0, 4)
+EditBtnCorner.Parent = EditBtn
+
+local EditBtnStroke = Instance.new("UIStroke")
+EditBtnStroke.Thickness = 1
+EditBtnStroke.Color = Color3.fromRGB(120, 20, 20)
+EditBtnStroke.Parent = EditBtn
+
+-- Khung nhập sửa đơn
+local EditFrame = Instance.new("Frame")
+EditFrame.Size = UDim2.new(1, -24, 0, 28)
+EditFrame.Position = UDim2.new(0, 12, 0, 50)
+EditFrame.BackgroundTransparency = 1
+EditFrame.Visible = false
+EditFrame.Parent = ViewMain
+
+local InputBox = Instance.new("TextBox")
+InputBox.Size = UDim2.new(0.75, -5, 1, 0)
+InputBox.Position = UDim2.new(0, 0, 0, 0)
+InputBox.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+InputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+InputBox.PlaceholderText = "Nhập đơn mới..."
+InputBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+InputBox.Text = ""
+InputBox.Font = Enum.Font.SourceSans
+InputBox.TextSize = 14
+InputBox.Parent = EditFrame
+
+local InputCorner = Instance.new("UICorner")
+InputCorner.CornerRadius = UDim.new(0, 4)
+InputCorner.Parent = InputBox
+
+local InputStroke = Instance.new("UIStroke")
+InputStroke.Thickness = 1
+InputStroke.Color = Color3.fromRGB(200, 0, 0)
+InputStroke.Parent = InputBox
+
+local SaveBtn = Instance.new("TextButton")
+SaveBtn.Size = UDim2.new(0.25, 0, 1, 0)
+SaveBtn.Position = UDim2.new(0.75, 0, 0, 0)
+SaveBtn.BackgroundColor3 = Color3.fromRGB(180, 0, 15)
+SaveBtn.Text = "Lưu"
+SaveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SaveBtn.Font = Enum.Font.SourceSansBold
+SaveBtn.TextSize = 14
+SaveBtn.Parent = EditFrame
+
+local SaveBtnCorner = Instance.new("UICorner")
+SaveBtnCorner.CornerRadius = UDim.new(0, 4)
+SaveBtnCorner.Parent = SaveBtn
+
+-- ==================== TAB 2: CÀI ĐẶT & LOG ====================
+local ViewSettings = Instance.new("Frame")
+ViewSettings.Size = UDim2.new(1, 0, 1, -32)
+ViewSettings.Position = UDim2.new(0, 0, 0, 32)
+ViewSettings.BackgroundTransparency = 1
+ViewSettings.Visible = false 
+ViewSettings.ZIndex = 2
+ViewSettings.Parent = MainFrame
+
+local LogLabel = Instance.new("TextLabel")
+LogLabel.Size = UDim2.new(1, -24, 0, 30)
+LogLabel.Position = UDim2.new(0, 12, 0, 0)
+LogLabel.BackgroundTransparency = 1
+LogLabel.TextColor3 = RamConnected and Color3.fromRGB(120, 255, 120) or Color3.fromRGB(255, 100, 100)
+LogLabel.TextWrapped = true
+LogLabel.Font = Enum.Font.SourceSans
+LogLabel.TextSize = 12
+LogLabel.Text = SystemLogMsg
+LogLabel.Parent = ViewSettings
+
+local ToggleRAMBtn = Instance.new("TextButton")
+ToggleRAMBtn.Size = UDim2.new(1, -24, 0, 26)
+ToggleRAMBtn.Position = UDim2.new(0, 12, 0, 32)
+ToggleRAMBtn.Text = Config.UseRAM and "LƯU TRÊN: RAM API" or "LƯU TRÊN: MÁY LOCAL"
+ToggleRAMBtn.BackgroundColor3 = Config.UseRAM and Color3.fromRGB(25, 100, 25) or Color3.fromRGB(140, 20, 20)
+ToggleRAMBtn.Font = Enum.Font.SourceSansBold
+ToggleRAMBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleRAMBtn.TextSize = 12
+ToggleRAMBtn.Parent = ViewSettings
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 4)
+ToggleCorner.Parent = ToggleRAMBtn
+
+-- ==========================================
+-- GẮN SỰ KIỆN NÚT BẤM
+-- ==========================================
+SettingsBtn.MouseButton1Click:Connect(function()
+    if ViewMain.Visible then
+        ViewMain.Visible = false
+        ViewSettings.Visible = true
+        SettingsBtn.Text = "🔙"
+    else
+        ViewMain.Visible = true
+        ViewSettings.Visible = false
+        SettingsBtn.Text = "⚙️"
+    end
+end)
+
+EditBtn.MouseButton1Click:Connect(function()
+    EditFrame.Visible = not EditFrame.Visible
+    if EditFrame.Visible then
+        MainFrame.Size = UDim2.new(0, 260, 0, 120)
+        InputBox.Text = Config.CurrentDon
+        InputBox:CaptureFocus()
+    else
+        MainFrame.Size = UDim2.new(0, 260, 0, 95)
+    end
+end)
+
+SaveBtn.MouseButton1Click:Connect(function()
+    local newNote = InputBox.Text
+    if newNote == "" then return end
+
+    Config.CurrentDon = newNote
+    OrderLabel.Text = "Đơn: " .. Config.CurrentDon
+
+    if Config.UseRAM and RamConnected then
+        local successSet = RAM_API("POST", "SetDescription", "Đơn: " .. newNote)
+        if successSet then
+            SendNotification("Mikura Hub", "Đã cập nhật đơn lên RAM!")
+        else
+            SendNotification("Lỗi RAM", "Không thể gửi dữ liệu lên RAM.")
+        end
+    else
+        SaveLocalData()
+        SendNotification("Mikura Hub", "Đã lưu đơn vào máy (Local)!")
+    end
+    
+    EditFrame.Visible = false
+    MainFrame.Size = UDim2.new(0, 260, 0, 95)
+end)
+
+ToggleRAMBtn.MouseButton1Click:Connect(function()
+    if not RamConnected and not Config.UseRAM then
+        SendNotification("Cảnh báo", "RAM chưa kết nối! Vui lòng kiểm tra Log.")
+        return
+    end
+
+    Config.UseRAM = not Config.UseRAM
+    ToggleRAMBtn.Text = Config.UseRAM and "LƯU TRÊN: RAM API" or "LƯU TRÊN: MÁY LOCAL"
+    ToggleRAMBtn.BackgroundColor3 = Config.UseRAM and Color3.fromRGB(25, 100, 25) or Color3.fromRGB(140, 20, 20)
+    SendNotification("Trạng thái", Config.UseRAM and "Đã bật RAM API!" or "Đã tắt RAM, chuyển sang lưu Local.")
+end)
+
+game.Players.PlayerRemoving:Connect(function(player)
+    if player == LocalPlayer and not Config.UseRAM then
+        SaveLocalData()
+    end
+end)
